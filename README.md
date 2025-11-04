@@ -17,8 +17,3 @@ Contract TX: 0xb9ae17a1def81fcaebb8ab04c2e9821d5aed22ae849bfe775166adb3accfa77c
 <img width="1456" height="929" alt="image" src="https://github.com/user-attachments/assets/b5bcacef-5aaa-49c3-a6bd-7de492ef7d51" />
 
 
-
-MD
-git add .
-git commit -m "solo hack complete"
-# create/push your public repo (via GitHub CLI or your own workflow)
