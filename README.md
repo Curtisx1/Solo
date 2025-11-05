@@ -10,6 +10,10 @@ DidLabBadge deployed to: 0x65BD186E69765A250E3f3f0f9b2103DfcaFB63fd
 
 Contract TX: 0xb9ae17a1def81fcaebb8ab04c2e9821d5aed22ae849bfe775166adb3accfa77c
 
+CID_IMG   = QmaLtVJYg9wg9zs7xut3d4keNfymgrDhdkWSVBw9wPLkZr  
+CID_META  = QmdrDDjEkjyUsCor6EXTNc3Poak3LRmRLZGUBV7Cj2NK5B  
+TOKEN_URI = ipfs://QmdrDDjEkjyUsCor6EXTNc3Poak3LRmRLZGUBV7Cj2NK5B  
+
 <img width="737" height="79" alt="image" src="https://github.com/user-attachments/assets/88b07425-b645-4ee8-8b1b-3255248d2bec" />
 
 
