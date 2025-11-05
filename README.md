@@ -14,6 +14,10 @@ CID_IMG   = QmaLtVJYg9wg9zs7xut3d4keNfymgrDhdkWSVBw9wPLkZr
 CID_META  = QmdrDDjEkjyUsCor6EXTNc3Poak3LRmRLZGUBV7Cj2NK5B  
 TOKEN_URI = ipfs://QmdrDDjEkjyUsCor6EXTNc3Poak3LRmRLZGUBV7Cj2NK5B  
 
+
+<img width="682" height="115" alt="image" src="https://github.com/user-attachments/assets/06bc2adf-aa76-46f1-a6d4-b09323f006cb" />
+
+
 <img width="613" height="258" alt="image" src="https://github.com/user-attachments/assets/b5f5332c-598c-48fd-a141-e294d95502c4" />
 
 
