@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>DIDLab SIWE + IPFS Uploader</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0b0c10; --card: #12131a; --muted: #7d8590; --text: #e6edf3; --accent: #3b82f6;
+      --border: #24314a; --good: #22c55e; --warn: #f59e0b; --bad: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      padding: 24px;
+    }
+    .wrap {
+      max-width: 980px; margin: 0 auto; display: grid; gap: 16px;
+    }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px;
+    }
+    h1,h2,h3 { margin: 0 0 12px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    input, button, textarea {
+      background: #0f1117; color: var(--text); border: 1px solid #2a3347; border-radius: 10px; padding: 8px 10px; outline: none;
+    }
+    button {
+      background: var(--accent); border: none; cursor: pointer;
+    }
+    button.secondary { background: #293246; }
+    button.good { background: var(--good); }
+    button.warn { background: var(--warn); color: #111; }
+    button.bad { background: var(--bad); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .muted { color: var(--muted); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+    textarea { width: 100%; min-height: 120px; }
+    code, pre { background: #0f1117; border: 1px solid #2a3347; border-radius: 10px; padding: 8px; overflow: auto; }
+    .pill { padding: 2px 8px; border-radius: 999px; font-size: 12px; display: inline-block; }
+    .ok { background: #12381f; border: 1px solid #1f9d55; }
+    .fail { background: #3a1b1c; border: 1px solid #e74c3c; }
+    .hint { font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>DIDLab — SIWE Auth + IPFS Upload</h1>
+
+    <div class="card">
+      <h2>Wallet / Network</h2>
+      <div class="row">
+        <label>
+          DIDLab Wallet Address
+          <input id="addr" class="mono" style="width: 420px"
+                 value="0x64180D70f3E643feBce0EA24c538e998324c39a9" />
+        </label>
+        <button id="btnConnect">Connect MetaMask</button>
+        <button id="btnCheckNet" class="secondary">Check DIDLab Chain</button>
+        <span id="acctStatus" class="pill"></span>
+      </div>
+      <div class="hint muted">Chain ID should be 252501 (hex: 0x3DA55). If MetaMask is on a different account than the address above, switch accounts in MetaMask.</div>
+    </div>
+
+    <div class="card grid-2">
+      <div>
+        <h2>SIWE Flow</h2>
+        <div class="row">
+          <button id="btnRunAll">Run SIWE (prepare → sign → verify)</button>
+          <button id="btnPrepare" class="secondary">Prepare</button>
+          <button id="btnSign" class="secondary">Sign</button>
+          <button id="btnVerify" class="secondary">Verify</button>
+        </div>
+        <h3 class="muted">Message</h3>
+        <textarea id="siweMsg" class="mono" placeholder="SIWE message will appear here…"></textarea>
+        <h3 class="muted">Signature</h3>
+        <input id="sig" class="mono" style="width: 100%" placeholder="0x… (signature)" />
+      </div>
+      <div>
+        <h2>Token</h2>
+        <div class="row">
+          <button id="btnCopyToken" class="secondary">Copy Token</button>
+          <button id="btnDecode" class="secondary">Decode Expiry</button>
+        </div>
+        <textarea id="token" class="mono" placeholder="JWT token will appear here…"></textarea>
+        <div id="exp" class="muted mono"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Upload to IPFS</h2>
+      <div class="row">
+        <input id="file" type="file" />
+        <button id="btnUpload" class="good">Upload</button>
+      </div>
+      <div id="uploadOut" class="mono" style="margin-top:8px;"></div>
+      <div class="hint muted">Select a file (e.g., <code>badge.png</code>) and upload with your current JWT.</div>
+    </div>
+
+    <div class="card">
+      <h2>Logs</h2>
+      <pre id="log" class="mono" style="min-height:120px"></pre>
+      <div class="hint muted">If /siwe/prepare returns 500, that’s a server-side issue. You can keep using an existing token until it expires.</div>
+    </div>
+  </div>
+
+  <script type="module">
+    // ---- Helpers ----
+    const $ = sel => document.querySelector(sel);
+    const log = (...args) => { const L = $("#log"); L.textContent += args.map(a => typeof a === "string" ? a : JSON.stringify(a,null,2)).join(" ") + "\n"; L.scrollTop = L.scrollHeight; };
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    async function jfetch(url, init = {}) {
+      const res = await fetch(url, { ...init, headers: { "Accept":"application/json", ...(init.headers||{}) }});
+      const text = await res.text();
+      let body; try { body = JSON.parse(text); } catch { body = { raw: text }; }
+      return { res, body };
+    }
+
+    // ---- DIDLab specifics ----
+    const DIDLAB_CHAIN_ID_DEC = 252501;
+    const DIDLAB_CHAIN_ID_HEX = "0x3DA55"; // 252501 in hex
+
+    async function ensureAccountMatch() {
+      if (!window.ethereum) throw new Error("MetaMask not found.");
+      const want = $("#addr").value.trim().toLowerCase();
+      const accs = await ethereum.request({ method: "eth_requestAccounts" });
+      const active = (accs[0] || "").toLowerCase();
+      const ok = (active === want);
+      const pill = $("#acctStatus");
+      pill.textContent = ok ? "Account OK" : "Mismatch";
+      pill.className = "pill " + (ok ? "ok" : "fail");
+      if (!ok) throw new Error(`MetaMask ${active} != input ${want}. Switch account in MetaMask or edit the address field.`);
+      return active;
+    }
+
+    async function checkNetwork() {
+      if (!window.ethereum) throw new Error("MetaMask not found.");
+      const currentHex = await ethereum.request({ method: "eth_chainId" });
+      if (currentHex !== DIDLAB_CHAIN_ID_HEX) {
+        log(`Chain mismatch: got ${currentHex}, expected ${DIDLAB_CHAIN_ID_HEX}.`);
+        try {
+          await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: DIDLAB_CHAIN_ID_HEX }] });
+          log("Switched to DIDLab chain.");
+        } catch (e) {
+          log("Could not switch chain. If needed, add chain in MetaMask with RPC:", "https://blockchain.didlab.org/rpc");
+        }
+      } else {
+        log("On DIDLab chain:", currentHex);
+      }
+    }
+
+    async function prepare(addr, attempts = 3) {
+      for (let i = 1; i <= attempts; i++) {
+        const { res, body } = await jfetch("https://api.didlab.org/v1/siwe/prepare", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: addr }),
+        });
+        log("prepare", i, res.status, body);
+        if (res.ok && body?.message) return body.message;
+        if (res.status >= 500 && i < attempts) { await sleep(700 * i); continue; }
+        throw new Error(`prepare failed: ${res.status} ${JSON.stringify(body)}`);
+      }
+      throw new Error("prepare gave no message");
+    }
+
+    async function signMessage(msg, addr) {
+      const sig = await ethereum.request({ method: "personal_sign", params: [msg, addr] });
+      return sig;
+    }
+
+    async function verify(msg, sig) {
+      const { res, body } = await jfetch("https://api.didlab.org/v1/siwe/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg, signature: sig }),
+      });
+      log("verify", res.status, body);
+      if (!res.ok || !body?.token) throw new Error(`verify failed: ${res.status} ${JSON.stringify(body)}`);
+      return body.token;
+    }
+
+    function decodeJwtExp(token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        const expIso = new Date(payload.exp * 1000).toISOString();
+        return { payload, expIso };
+      } catch { return null; }
+    }
+
+    async function uploadWithToken(token, file) {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      form.append("pin", "true");
+      const { res, body } = await jfetch("https://api.didlab.org/v1/ipfs/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      log("upload", res.status, body);
+      if (!res.ok) throw new Error(`upload failed: ${res.status} ${JSON.stringify(body)}`);
+      return body;
+    }
+
+    // ---- UI wiring ----
+    $("#btnConnect").addEventListener("click", async () => {
+      try {
+        await ensureAccountMatch();
+        await checkNetwork();
+      } catch (e) { log(e.message || e); }
+    });
+
+    $("#btnCheckNet").addEventListener("click", async () => {
+      try { await checkNetwork(); } catch (e) { log(e.message || e); }
+    });
+
+    $("#btnPrepare").addEventListener("click", async () => {
+      try {
+        const addr = await ensureAccountMatch();
+        await checkNetwork();
+        const msg = await prepare(addr);
+        $("#siweMsg").value = msg;
+      } catch (e) { log(e.message || e); }
+    });
+
+    $("#btnSign").addEventListener("click", async () => {
+      try {
+        const addr = await ensureAccountMatch();
+        const msg = $("#siweMsg").value.trim();
+        if (!msg) throw new Error("No SIWE message to sign. Click Prepare first.");
+        const sig = await signMessage(msg, addr);
+        $("#sig").value = sig;
+      } catch (e) { log(e.message || e); }
+    });
+
+    $("#btnVerify").addEventListener("click", async () => {
+      try {
+        const msg = $("#siweMsg").value.trim();
+        const sig = $("#sig").value.trim();
+        if (!msg || !sig) throw new Error("Need message + signature.");
+        const token = await verify(msg, sig);
+        $("#token").value = token;
+        window.siweToken = token;
+        const dec = decodeJwtExp(token);
+        if (dec) $("#exp").textContent = `exp: ${dec.expIso}`;
+      } catch (e) { log(e.message || e); }
+    });
+
+    $("#btnRunAll").addEventListener("click", async () => {
+      try {
+        const addr = await ensureAccountMatch();
+        await checkNetwork();
+        const msg = await prepare(addr);
+        $("#siweMsg").value = msg;
+        const sig = await signMessage(msg, addr);
+        $("#sig").value = sig;
+        const token = await verify(msg, sig);
+        $("#token").value = token;
+        window.siweToken = token;
+        const dec = decodeJwtExp(token);
+        if (dec) $("#exp").textContent = `exp: ${dec.expIso}`;
+        log("SIWE complete.");
+      } catch (e) { log(e.message || e); }
+    });
+
+    $("#btnCopyToken").addEventListener("click", async () => {
+      const t = $("#token").value.trim();
+      if (!t) { log("No token to copy."); return; }
+      await navigator.clipboard.writeText(t);
+      log("Token copied to clipboard.");
+    });
+
+    $("#btnDecode").addEventListener("click", () => {
+      const t = $("#token").value.trim();
+      if (!t) { log("No token to decode."); return; }
+      const dec = decodeJwtExp(t);
+      if (!dec) { log("Could not decode token."); return; }
+      $("#exp").textContent = `exp: ${dec.expIso}`;
+      log(dec.payload);
+    });
+
+    $("#btnUpload").addEventListener("click", async () => {
+      try {
+        const t = $("#token").value.trim();
+        if (!t) throw new Error("No JWT. Run SIWE first.");
+        const f = $("#file").files?.[0];
+        if (!f) throw new Error("No file selected.");
+        const out = await uploadWithToken(t, f);
+        $("#uploadOut").textContent = `CID: ${out.cid}\nBundleCID: ${out.bundleCid}`;
+      } catch (e) { log(e.message || e); }
+    });
+  </script>
+</body>
+</html>
